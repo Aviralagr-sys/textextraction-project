@@ -1,0 +1,9 @@
+pytesseract
+pillow
+python-docx
+PyMuPDF
+transformers==4.39.3
+torch==2.2.2
+sentence-transformers==2.5.1
+googletrans==4.0.0-rc1
+keybert==0.7.0

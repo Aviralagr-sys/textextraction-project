@@ -1,9 +1,0 @@
------- Summary ------
-System will process uploaded documents, extract information, validate claims against policies, and provide automated approval/denial recommendations. Timeline: 3 weeks Technology Stack: Python (FastAPI), SQLite, OpenAI API, Streamlit Team Structure: 1 Senior Developer + 2-3 Junior Developers Junior Developer Task Assignments Developer 1: Database & Backend Foundation. Developer 2: Document Processing & OCR.
-Week 1 Tasks: Streamlit Application Setup (2 days) Set up Streamlit application structure and navigation Implement main dashboard with navigation menu Add responsive design elements Set up connection to backend API.
-Senior Developer Oversight Tasks Week 1: Architecture and Integration Review and approve database schema design Set up project structure and development environment Implement AI integration with OpenAI API Create business rules and validation logic Code review and mentoring for all junior developers Week 2: Core Logic Implementation Develop claim processing orchestration logic. Week 3: Final Integration and Demo Prep End-to-end testing and Demo prep.
-Full-stack development experience with modern Python tools. API development and integration skills. Database design and management. Testing and debugging practices. Project collaboration using Git and code reviews.
-The project will demonstrate real-world AI application in business processes. It will give the team experience with different aspects of full-stack development while contributing to a meaningful project that demonstrates real- world AI.
-
------- Keywords ------
-sqlalchemy, sqlite, database, workflow, api, schema, insurance, documentation, application, tasks

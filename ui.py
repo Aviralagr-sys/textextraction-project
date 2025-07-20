@@ -35,11 +35,13 @@ if st.button("Extract Information"):
                     f"{BACKEND_URL}/upload",
                     files=files,
                     data=data,
-                    timeout=180  # Increased timeout for large files/OCR
+                    timeout=180
                 )
                 if response.status_code == 200:
                     result = response.json()
                     st.success("Extraction complete!")
+                    
+                    # Show extracted data
                     if "data" in result and "results" in result["data"]:
                         for item in result["data"]["results"]:
                             st.markdown(f"### Keyword: `{item.get('keyword', 'N/A')}`")
@@ -56,6 +58,13 @@ if st.button("Extract Information"):
                             st.markdown("---")
                     else:
                         st.write(result)
+
+                    # Show highlighted PDF pages
+                    if "highlighted_pages" in result and result["highlighted_pages"]:
+                        st.subheader("🔍 Highlighted PDF Pages")
+                        for img_name in result["highlighted_pages"]:
+                            img_url = f"{BACKEND_URL}/highlighted_pages/{img_name}"
+                            st.image(img_url, caption=img_name, use_container_width=True)
                 else:
                     try:
                         err = response.json()

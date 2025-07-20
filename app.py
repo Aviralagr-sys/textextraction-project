@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 import os
 import json
@@ -18,14 +18,14 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.documents import Document
 
-# Set Tesseract path explicitly for maximum reliability!
+# Set Tesseract path explicitly
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:8501", "http://127.0.0.1:8501"], 
+CORS(app, origins=["http://localhost:8501", "http://127.0.0.1:8501"],
      methods=["GET", "POST", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"])
 
@@ -37,8 +37,10 @@ MIN_TEXT_LENGTH = 50  # Minimum characters to consider a page has readable text
 
 model = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
 
+
 def allowed_file(filename):
     return '.' in filename and os.path.splitext(filename)[1].lower() in SUPPORTED_FILE_TYPES
+
 
 def extract_text_with_ocr(pdf_path):
     doc = fitz.open(pdf_path)
@@ -64,11 +66,52 @@ def extract_text_with_ocr(pdf_path):
     doc.close()
     return full_text.strip()
 
+
 def extract_text_from_image_file(file_obj):
     img = Image.open(file_obj)
     config = '--oem 1 --psm 6'
     text = pytesseract.image_to_string(img, lang='eng', config=config)
     return text
+
+
+def highlight_pdf_pages(pdf_path, keywords, output_dir="./highlighted_pages"):
+    """
+    Highlights keywords in the PDF and draws a red bounding box.
+    Returns a list of image file paths.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    doc = fitz.open(pdf_path)
+    keyword_list = [k.strip() for k in keywords.split(',') if k.strip()]
+    saved_images = []
+
+    for page_num, page in enumerate(doc, start=1):
+        found = False
+        for keyword in keyword_list:
+            matches = page.search_for(keyword)
+            for rect in matches:
+                # Yellow highlight
+                page.add_highlight_annot(rect)
+                # Red bounding box (rubber band)
+                rubber_band = page.add_rect_annot(rect)
+                rubber_band.set_colors(stroke=(1, 0, 0))
+                rubber_band.set_border(width=2)
+                rubber_band.update()
+                found = True
+
+        if found:
+            pix = page.get_pixmap(dpi=200)
+            image_path = os.path.join(output_dir, f"page_{page_num}.png")
+            pix.save(image_path)
+            saved_images.append(image_path)
+
+    doc.close()
+    return saved_images
+
+
+@app.route('/highlighted_pages/<path:filename>')
+def serve_highlighted_image(filename):
+    return send_from_directory('./highlighted_pages', filename)
+
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
@@ -86,6 +129,7 @@ def upload_files():
 
     documents = []
     temp_dir = tempfile.mkdtemp()
+    highlighted_pages = []
 
     try:
         for file in files:
@@ -108,6 +152,11 @@ def upload_files():
                         full_text = extract_text_with_ocr(filepath)
                         docs = [Document(page_content=full_text)] if full_text.strip() else []
                     documents.extend(docs)
+
+                    # Highlighting
+                    highlighted_images = highlight_pdf_pages(filepath, keywords)
+                    highlighted_pages.extend([os.path.basename(img) for img in highlighted_images])
+
                 elif extension == '.docx':
                     file.save(filepath)
                     loader = Docx2txtLoader(filepath)
@@ -118,9 +167,7 @@ def upload_files():
                     documents.extend(loader.load())
                 elif extension in ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']:
                     try:
-                        print(f"Received image file: {filename}")  # For debug
                         text = extract_text_from_image_file(file)
-                        print(f"OCR output for {filename[:30]}: {text[:100]!r}")  # For debug
                         if text.strip():
                             documents.append(Document(page_content=f"[OCR IMAGE]\n{text.strip()}"))
                     except Exception as err:
@@ -129,7 +176,6 @@ def upload_files():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
     if not documents:
-        print("DEBUG: No documents extracted from these files:", [file.filename for file in files])
         return jsonify({"error": "No valid content extracted"}), 400
 
     # Chunk/split and analyze
@@ -149,26 +195,6 @@ def upload_files():
     full_text = "\n\n".join([doc.page_content for doc in filtered_splits])
 
     prompt_template = """You are an expert document analyzer. Extract comprehensive and meaningful information from the following text based on these keywords: {keywords}
-
-    For each keyword, provide:
-    1. **Definition/Description**: What the keyword refers to in this document
-    2. **Key Details**: Important facts, requirements, or specifications
-    3. **Programs/Courses**: Specific programs, courses, or offerings mentioned
-    4. **Requirements**: Any prerequisites, requirements, or conditions
-    5. **Additional Context**: Any other relevant information
-
-    Keywords to analyze: {keywords}
-
-    Document Text:
-    {text}
-
-    Instructions:
-    - Look for substantial content, not just headers or table of contents
-    - Extract specific details like course codes, credit hours, requirements, descriptions
-    - Include relevant quotes and specific information
-    - If a keyword appears in multiple contexts, include all relevant information
-    - Focus on actionable and informative content
-    - Provide detailed explanations, not just brief mentions
 
     Return the information in this JSON format:
     {{
@@ -196,69 +222,34 @@ def upload_files():
     )
 
     try:
-        keyword_list = [k.strip() for k in keywords.split(',')]
-        keyword_specific_content = {}
-        for keyword in keyword_list:
-            relevant_chunks = []
-            for doc in filtered_splits:
-                content = doc.page_content.lower()
-                if keyword.lower() in content:
-                    relevant_chunks.append(doc.page_content)
-            if relevant_chunks:
-                keyword_specific_content[keyword] = "\n\n".join(relevant_chunks[:3])
-        if keyword_specific_content:
-            combined_content = "\n\n".join([
-                f"=== Content for {keyword} ===\n{content}" 
-                for keyword, content in keyword_specific_content.items()
-            ])
-            analysis_text = combined_content
-        else:
-            analysis_text = full_text
         result = chain.invoke({
             "keywords": keywords,
-            "text": analysis_text[:15000]
+            "text": full_text[:15000]
         })
         start_idx = result.find('{')
         end_idx = result.rfind('}') + 1
 
         if start_idx == -1 or end_idx == 0:
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "results": [{
-                        "keyword": keywords,
-                        "relevant_text": result,
-                        "context": "Raw response from model"
-                    }]
-                }
-            })
+            return jsonify({"status": "success", "data": {"results": [{"keyword": keywords, "relevant_text": result}]}})
 
         json_result = result[start_idx:end_idx]
         try:
             parsed_json = json.loads(json_result)
             return jsonify({
                 "status": "success",
-                "data": parsed_json
+                "data": parsed_json,
+                "highlighted_pages": highlighted_pages
             })
-        except json.JSONDecodeError as e:
-            app.logger.error(f"JSON parsing error: {str(e)}")
+        except json.JSONDecodeError:
             return jsonify({
                 "status": "success",
-                "data": {
-                    "results": [{
-                        "keyword": keywords,
-                        "relevant_text": result,
-                        "context": "Could not parse as JSON, showing raw response"
-                    }]
-                }
+                "data": {"results": [{"keyword": keywords, "relevant_text": result}]},
+                "highlighted_pages": highlighted_pages
             })
 
     except Exception as e:
-        app.logger.error(f"Error processing keywords: {str(e)}")
-        return jsonify({
-            "error": "Failed to process keywords",
-            "details": str(e)
-        }), 500
+        return jsonify({"error": "Failed to process keywords", "details": str(e)}), 500
+
 
 @app.route('/', methods=['GET'])
 def home():
@@ -270,12 +261,11 @@ def home():
         }
     })
 
+
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({
-        "status": "ok",
-        "message": "Service is running"
-    })
+    return jsonify({"status": "ok", "message": "Service is running"})
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)

@@ -1,10 +1,14 @@
 @echo off
 echo Starting Flask server...
-start cmd /k "cd /d %~dp0 && python app.py"
+start "Flask Server" cmd /k "cd /d %~dp0 && python app.py"
 
-timeout /t 2 > nul
+REM Wait 4 seconds for Flask backend to start properly
+timeout /t 4 > nul
 
 echo Starting Streamlit UI...
-start "" "C:\Users\aviral\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\LocalCache\local-packages\Python312\Scripts\streamlit.cmd" run ui.py
+start "Streamlit UI" cmd /k "cd /d %~dp0 && streamlit run ui.py"
+
+REM Do NOT open browser explicitly here to avoid double openings
+REM Simply access Streamlit at http://localhost:8501 (or whichever port Streamlit reports)
 
 exit
